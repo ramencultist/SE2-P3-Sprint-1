@@ -20,3 +20,11 @@ any clicks.
 ## Usage:
 ***
 The Macro is performed automatically when it is called from the CV pipeline.
+
+
+***
+Authored by Drew Medlock
+
+Created: 11/3/2026
+
+Last Edited: 11/8/2026
