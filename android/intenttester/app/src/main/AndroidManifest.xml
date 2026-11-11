@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Module Name: Android application manifest
+Description: Declares the intent tester application and its launcher activity.
+
+Inputs: Android application and activity declarations consumed by the Android build tools.
+Outputs: Packaged application metadata and a launcher entry for MainActivity.
+External Sources: ChatGPT 6.1 Sol
+Attributions: Android SDK and Gradle build tooling
+
+Creation 11/10/2026 - Drew and ChatGPT:
+A description of how and why AI was used: AI assisted with creating the tester to category-only Traffic, Police, and Hazard reports, and updating the setup documentation.
+
+How you validated and revised the AI output: Built the APK, installed it on a device. Used the different categories of reports and verified that it worked with the macro on Android.
+
+The challenges or limitations you faced while using AI: Aligning the intent of AI generated content with the purpose of the project and desired categories of Police, Traffic, and Hazard. Attempted to generate other categories/subcategories.
+Authors: Drew Medlock
+Creation Date: 11/10/2026
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:allowBackup="false" android:label="Wazeomatic Intent Tester"
+        android:supportsRtl="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
