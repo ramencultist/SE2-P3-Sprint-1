@@ -1,0 +1,21 @@
+Meeting 1 - 11/04/2026
+Location: Eaton 3001
+Objective: Discuss the current progress of the project. Decide on initial sprint 1 requirement focus
+Atttendence: Luke, Alex, Carter, Blake, Drew, Kyle, Kyler
+Details: Daily Scrum with Huy, first P3 meeting 
+
+Initial Discussion:
+	- Discussed how we would implement the CV pipeline.
+	- Discussed the progress on the macro used to interact with waze.
+	- Taled about what to show for sprint demo.
+
+Tasks Currently in Development:
+	- Kyle: Code improvement and refactoring
+	- Kyler, Blake: Develop the CV pipeline
+	- Drew, Carter: Work on the macros
+	- Kyle, Luke, Alex: Testing
+	- Kyle, Luke, Alex: Bug Fixes
+
+
+Plan for Sprint:
+	Complete the macro to auto report hazards, show demo of macro working. Begin development on CV pipeline.

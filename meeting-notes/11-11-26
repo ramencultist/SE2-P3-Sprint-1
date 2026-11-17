@@ -1,0 +1,22 @@
+Meeting 2 - 11/11/2026
+Location: Eaton 3001
+Objective: Discuss the current progress of the project. Decide on what needs to be completed next.
+Atttendence: Alex, Carter, Blake, Drew, Kyle, Kyler
+Details: Daily Scrum with Huy, sprint 1 demo. 
+
+Initial Discussion:
+	- Showed demo of current project progress and talked about the macro
+	- Discussed next sprint plan
+	- Assigned the sprint 2 tasks and goal
+	- Plan to show model detacting hazard and activating the macro for reporting it
+
+Tasks Currently in Development:
+	- Alex: Code refactoring
+	- Kyler, Blake: Create Demo video
+	- Drew, Carter: Work on CV pipeline
+	- Kyle, Luke: Testing
+	- Kyle, Luke: Bug Fixes
+
+
+Plan for Sprint:
+	Finish CV pipeline, create demo of model detecting a hazard and reporting it in waze with the macro.
