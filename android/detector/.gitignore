@@ -1,0 +1,10 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+# models are copied in by the syncModels task, not committed
+app/src/main/assets/*.onnx
+app/src/main/assets/*_labels.txt
+.kotlin/

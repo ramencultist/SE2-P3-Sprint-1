@@ -1,0 +1,21 @@
+<!--
+Module Name: strings.xml
+Description: String resources for the mock Waze app
+
+Inputs: Android build
+Outputs: The app name shown on the emulator
+External Sources: Claude Fable 5.1
+Attributions:
+
+Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
+A description of how and why AI was used: Claude Fable 5.1 used to write the Android resource file
+How you validated and revised the AI output: Building the app and running it on the Pixel 9 Pro emulator
+The challenges or limitations you faced while using AI: Keeping the Kotlin and Python versions identical
+Authors: Blake Pennel
+Creation Date: 11/5/2026
+
+Ported to the SE2-P3 repository 11/17/2026 by Luke Reicherter with Claude Opus 5.5 for Sprint 2 (requirements 7 and 9); code unchanged from the team's wazeomatic development repository
+-->
+<resources>
+    <string name="app_name">Waze (Mock)</string>
+</resources>

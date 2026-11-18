@@ -1,0 +1,6 @@
+pothole
+cone
+construction_sign
+delineator
+barricade
+worker

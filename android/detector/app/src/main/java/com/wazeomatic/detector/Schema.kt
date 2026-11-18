@@ -19,15 +19,20 @@ Description: A confirmed hazard with type, confidence, source and timestamp, ser
 
 Inputs: Model labels and JSON lines from the TCP server
 Outputs: Hazard events and their JSON and Intent extras
-External Sources: Claude Fable 5.1
+External Sources: Claude Fable 5.1, Claude Opus 5.5
 Attributions:
 
 Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
 A description of how and why AI was used: Claude Fable 5.1 used to mirror the Python schema so both pipelines send the same message
 How you validated and revised the AI output: Proofreading, ReportManagerTest.kt JSON checks, and the schema check in tools/emulator/run_e2e.py
 The challenges or limitations you faced while using AI: Keeping hazard_type strings identical to the Python side and the macro
-Authors: Blake Pennel
+Authors: Blake Pennel, Luke Reicherter
 Creation Date: 11/5/2026
+
+Revision 11/17/2026 - Luke Reicherter and Claude Opus 5.5 (Sprint 2, requirement 7):
+A description of how and why AI was used: Claude Opus 5.5 used to map a "debris" model class to HAZARD_ON_ROAD_OBJECT, as in schema.py
+How you validated and revised the AI output: Proofreading, and the schema check in tools/emulator/run_e2e.py that compares this table with schema.py
+The challenges or limitations you faced while using AI: None
 */
 
 package com.wazeomatic.detector
@@ -68,6 +73,7 @@ object Schema {
         "delineator" to "HAZARD_ON_ROAD_CONSTRUCTION",
         "barricade" to "HAZARD_ON_ROAD_CONSTRUCTION",
         "worker" to "HAZARD_ON_ROAD_CONSTRUCTION",
+        "debris" to "HAZARD_ON_ROAD_OBJECT",   // Sprint 2 (7.2); COCO objects in the lane map here too
         "police_vehicle" to "POLICE",
         // COCO classes used from the stock detector
         "dog" to "HAZARD_SHOULDER_ANIMALS",

@@ -5,20 +5,28 @@ Description: Kotlin port of wazeomatic/report_manager.py with the same defaults
 Class Name: ReportConfig
 Description: Thresholds: window, minimum hits, confidence floors, cooldowns and heuristics
 
+Class Name: Decision
+Description: One logged reason a detection or confirmed hazard did not become a report (same reasons as report_manager.py)
+
 Class Name: ReportManager
-Description: Applies persistence, low-confidence filtering, the hood zone and the 60 second per-type cooldown, then emits HazardEvents
+Description: Applies persistence, low-confidence filtering, the hood zone, the in-lane road-object rule and the 60 second per-type cooldown, then emits HazardEvents and logs every dropped detection
 
 Inputs: Per-frame detections and a clock
-Outputs: HazardEvents for detections that pass every check; low-confidence and duplicate detections are dropped
-External Sources: Claude Fable 5.1
+Outputs: HazardEvents for detections that pass every check; a Decision for each low-confidence, hood-zone, unconfirmed or suppressed detection
+External Sources: Claude Fable 5.1, Claude Opus 5.5
 Attributions:
 
 Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
 A description of how and why AI was used: Claude Fable 5.1 used to port the report rules so the phone and the desktop behave identically
 How you validated and revised the AI output: Proofreading, and ReportManagerTest.kt mirroring tests/test_report_manager.py
 The challenges or limitations you faced while using AI: Keeping the Kotlin and Python rules and defaults in sync
-Authors: Blake Pennel
+Authors: Blake Pennel, Luke Reicherter
 Creation Date: 11/5/2026
+
+Revision 11/17/2026 - Luke Reicherter and Claude Opus 5.5 (Sprint 2, requirements 7 and 9):
+A description of how and why AI was used: Claude Opus 5.5 used to port the Sprint 2 decision log (criteria 7.3-7.6, 9.3-9.5) and the in-lane road-object rule (criterion 7.2) from report_manager.py, and to make a per-label floor only raise the global floor, as it already did in Python
+How you validated and revised the AI output: Proofreading against report_manager.py, and Sprint2RequirementsTest.kt mirroring tests/test_sprint2_requirements.py
+The challenges or limitations you faced while using AI: Keeping android.util.Log out of this class so the JVM unit tests run; Pipeline.kt sends the decisions to logcat and the status line instead
 */
 
 package com.wazeomatic.detector
@@ -54,16 +62,57 @@ data class ReportConfig(
     val vehicleLabels: Set<String> = setOf("car", "truck", "bus"),
     val vehicleMinArea: Float = 0.02f,
     val vehicleMinGrowth: Float = 1.35f,
+    // in-lane road-object rule (criterion 7.2): a COCO object whose box centre is in the lane ahead
+    val roadObjectEnabled: Boolean = true,
+    val roadObjectLabels: Set<String> = DEFAULT_ROAD_OBJECT_LABELS,
+    val laneXMin: Float = 0.30f,
+    val laneXMax: Float = 0.70f,
+    val laneYMin: Float = 0.45f,
+    val personLabels: Set<String> = setOf("person"),
 )
 
 /** Same value as DEFAULT_LABEL_FLOORS in wazeomatic/report_manager.py. */
 val DEFAULT_LABEL_FLOORS: Map<String, Float> = mapOf("pothole" to 0.45f)
+
+/** Same list as DEFAULT_ROAD_OBJECT_LABELS in wazeomatic/report_manager.py. */
+val DEFAULT_ROAD_OBJECT_LABELS: Set<String> = setOf(
+    "suitcase", "backpack", "handbag", "umbrella", "sports ball", "skateboard",
+    "chair", "couch", "bench", "potted plant", "bed", "toilet", "refrigerator", "tv",
+)
+
+/** Why a detection, or a confirmed hazard, did not become a report (reasons as in report_manager.py). */
+data class Decision(
+    val frame: Int,
+    val reason: String,
+    val label: String,
+    val hazard: String?,
+    val confidence: Float,
+    val ts: Double,
+    val detail: String = "",
+) {
+    override fun toString(): String =
+        "frame $frame: $reason $label (${"%.2f".format(java.util.Locale.US, confidence)})" +
+            (hazard?.let { " -> $it" } ?: "") + (if (detail.isNotEmpty()) ": $detail" else "")
+
+    companion object {
+        const val LOW_CONFIDENCE = "low_confidence"
+        const val HOOD_ZONE = "hood_zone"
+        const val UNCONFIRMED = "unconfirmed"
+        const val COOLDOWN = "cooldown"
+        const val GLOBAL_COOLDOWN = "global_cooldown"
+        const val CARRIED_OBJECT = "carried_object"
+    }
+}
 
 class ReportManager(
     val cfg: ReportConfig = ReportConfig(),
     val source: String = "phone",
     private val clock: () -> Double = ::nowSeconds,
 ) {
+    /** Called for every logged [Decision]; Pipeline.kt sends them to logcat. A property, not a
+     *  constructor parameter, so a trailing lambda in ReportManager(cfg, src) { now } stays the clock. */
+    var onDecision: ((Decision) -> Unit)? = null
+
     private class Hit(val frame: Int, val conf: Float, val bbox: BBox, val label: String)
 
     private class Tracklet(var bbox: BBox) {
@@ -74,12 +123,18 @@ class ReportManager(
         val hits = ArrayDeque<Hit>()
         var lastEmittedTs = -1e9
         val tracklets = ArrayList<Tracklet>()
+        var lastSuppressedFrame = Int.MIN_VALUE / 2
     }
 
     private val tracks = LinkedHashMap<String, Track>()
     private var lastGlobalTs = -1e9
     private var frame = 0
     private var hoodFracDynamic = 0f
+
+    /** Most recent decisions, oldest first (criteria 7.3-7.6, 9.3-9.5). */
+    val decisions = ArrayDeque<Decision>()
+    val decisionCounts = LinkedHashMap<String, Int>()
+    var decisionLogSize = 2000
 
     /** Active hood zone: the configured minimum or a larger value learnt by [HoodEstimator]. */
     val hoodFrac: Float get() = maxOf(cfg.hoodFrac, hoodFracDynamic)
@@ -97,12 +152,26 @@ class ReportManager(
     ): List<HazardEvent> {
         frame = frameIndex ?: (frame + 1)
         val now = clock()
+        val dets = detections.toList()
+        val persons = dets.filter { it.label in cfg.personLabels }.map { it.bbox }
         val best = LinkedHashMap<String, Detection>()
         val accepted = LinkedHashMap<String, ArrayList<Detection>>()
-        for (d in detections) {
+        for (d in dets) {
             val hazard = hazardFor(d) ?: continue
-            if (d.confidence < minConf(d.label)) continue
-            if (inHoodZone(d)) continue
+            val floor = minConf(d.label)
+            if (d.confidence < floor) {
+                record(Decision.LOW_CONFIDENCE, d.label, hazard, d.confidence, now, "below floor ${fmt(floor)}")
+                continue
+            }
+            if (inHoodZone(d)) {
+                record(Decision.HOOD_ZONE, d.label, hazard, d.confidence, now,
+                    "box bottom ${fmt(d.bbox.cy + d.bbox.h / 2f)} inside hood zone ${fmt(hoodFrac)}")
+                continue
+            }
+            if (hazard == "HAZARD_ON_ROAD_OBJECT" && persons.any { centerInside(d.bbox, it) }) {
+                record(Decision.CARRIED_OBJECT, d.label, hazard, d.confidence, now, "inside a person box")
+                continue
+            }
             accepted.getOrPut(hazard) { ArrayList() }.add(d)
             val prev = best[hazard]
             if (prev == null || d.confidence > prev.confidence) best[hazard] = d
@@ -118,9 +187,24 @@ class ReportManager(
 
         val events = ArrayList<HazardEvent>()
         for ((hazard, tr) in tracks) {
-            val hits = qualifyingHits(tr) ?: continue
-            if (now - tr.lastEmittedTs < cfg.cooldownS) continue
-            if (now - lastGlobalTs < cfg.globalCooldownS) continue
+            val hits = qualifyingHits(tr)
+            if (hits == null) {
+                best[hazard]?.let {
+                    record(Decision.UNCONFIRMED, it.label, hazard, it.confidence, now,
+                        "${hitCount(tr)}/${cfg.minHits} hits in last ${cfg.window} frames")
+                }
+                continue
+            }
+            if (now - tr.lastEmittedTs < cfg.cooldownS) {
+                logSuppressed(Decision.COOLDOWN, hazard, tr, hits, now,
+                    "reported ${"%.1f".format(java.util.Locale.US, now - tr.lastEmittedTs)}s ago, cooldown ${cfg.cooldownS.toInt()}s")
+                continue
+            }
+            if (now - lastGlobalTs < cfg.globalCooldownS) {
+                logSuppressed(Decision.GLOBAL_COOLDOWN, hazard, tr, hits, now,
+                    "another hazard reported ${"%.1f".format(java.util.Locale.US, now - lastGlobalTs)}s ago")
+                continue
+            }
             if (hazard == "HAZARD_SHOULDER_CAR_STOPPED" && !stoppedVehicleConfirmed(tr)) continue
             val top = hits.maxByOrNull { it.conf } ?: continue
             events.add(
@@ -146,13 +230,42 @@ class ReportManager(
 
     fun hazardFor(d: Detection): String? {
         cfg.classToHazard[d.label]?.let { return it }
+        if (cfg.roadObjectEnabled && d.label in cfg.roadObjectLabels && inLane(d)) return "HAZARD_ON_ROAD_OBJECT"
         if (cfg.stoppedVehicleEnabled && d.label in cfg.vehicleLabels && inShoulder(d)) {
             return "HAZARD_SHOULDER_CAR_STOPPED"
         }
         return null
     }
 
-    private fun minConf(label: String): Float = cfg.minConfidenceByLabel[label] ?: cfg.minConfidence
+    /** A label floor only ever raises the bar, as in report_manager.py. */
+    private fun minConf(label: String): Float = maxOf(cfg.minConfidence, cfg.minConfidenceByLabel[label] ?: 0f)
+
+    private fun inLane(d: Detection): Boolean =
+        d.bbox.cx in cfg.laneXMin..cfg.laneXMax && d.bbox.cy >= cfg.laneYMin
+
+    private fun centerInside(inner: BBox, outer: BBox): Boolean =
+        kotlin.math.abs(inner.cx - outer.cx) <= outer.w / 2f && kotlin.math.abs(inner.cy - outer.cy) <= outer.h / 2f
+
+    private fun hitCount(tr: Track): Int =
+        if (cfg.trackIou <= 0f) tr.hits.size else (tr.tracklets.maxOfOrNull { it.hits.size } ?: 0)
+
+    private fun fmt(v: Float) = "%.2f".format(java.util.Locale.US, v)
+
+    private fun record(reason: String, label: String, hazard: String?, conf: Float, ts: Double, detail: String) {
+        val dec = Decision(frame, reason, label, hazard, conf, ts, detail)
+        decisions.addLast(dec)
+        while (decisions.size > decisionLogSize) decisions.removeFirst()
+        decisionCounts[reason] = (decisionCounts[reason] ?: 0) + 1
+        onDecision?.invoke(dec)
+    }
+
+    /** Confirmed but held back by a cooldown: logged once per window, not on every frame. */
+    private fun logSuppressed(reason: String, hazard: String, tr: Track, hits: Collection<Hit>, now: Double, detail: String) {
+        if (frame - tr.lastSuppressedFrame < cfg.window) return
+        tr.lastSuppressedFrame = frame
+        val top = hits.maxByOrNull { it.conf } ?: return
+        record(reason, top.label, hazard, top.conf, now, detail)
+    }
 
     private fun inHoodZone(d: Detection): Boolean {
         val hood = hoodFrac

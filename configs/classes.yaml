@@ -1,0 +1,32 @@
+# Module Name: classes.yaml
+# Description: Class schema of the custom hazard model (output index order) and the mapping of each class to a Waze hazard type
+#
+# Inputs: Read by run_video.py and the training tools
+# Outputs: Class names and the class-to-hazard mapping
+# External Sources: Claude Fable 5.1
+# Attributions:
+#
+# Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
+# A description of how and why AI was used: Claude Fable 5.1 used to define the six-class schema (pothole and five construction classes) for requirements 7 and 9
+# How you validated and revised the AI output: Proofreading against schema.py and the exported labels files
+# The challenges or limitations you faced while using AI: Keeping the Kotlin and Python versions identical
+# Authors: Blake Pennel
+# Creation Date: 11/5/2026
+#
+# Ported to the SE2-P3 repository 11/17/2026 by Luke Reicherter with Claude Opus 5.5 for Sprint 2 (requirements 7 and 9); code unchanged from the team's wazeomatic development repository
+# Class schema for the custom hazard detector. Index order is the model's output order.
+# Each class maps to a hazard key in wazeomatic/schema.py (HAZARD_TYPES).
+names:
+  0: pothole
+  1: cone
+  2: construction_sign
+  3: delineator
+  4: barricade
+  5: worker
+hazard_map:
+  pothole: HAZARD_ON_ROAD_POTHOLE
+  cone: HAZARD_ON_ROAD_CONSTRUCTION
+  construction_sign: HAZARD_ON_ROAD_CONSTRUCTION
+  delineator: HAZARD_ON_ROAD_CONSTRUCTION
+  barricade: HAZARD_ON_ROAD_CONSTRUCTION
+  worker: HAZARD_ON_ROAD_CONSTRUCTION

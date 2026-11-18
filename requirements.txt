@@ -1,0 +1,10 @@
+# Desktop pipeline (inference + simulation). Install torch separately for training:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+numpy>=1.26
+opencv-python>=4.9
+onnxruntime>=1.18
+onnx>=1.16
+pillow>=10
+pyyaml>=6
+tqdm>=4.66
+pytest>=8

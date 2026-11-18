@@ -10,15 +10,20 @@ Description: Runs each frame through the detectors and report manager and sends 
 
 Inputs: Frames from a frame source, detectors, a report manager and sinks
 Outputs: Detections and HazardEvents per frame, annotated video frames and run statistics
-External Sources: Claude Fable 5.1
+External Sources: Claude Fable 5.1, Claude Opus 5.5
 Attributions:
 
 Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
 A description of how and why AI was used: Claude Fable 5.1 used to write the glue loop that ties preprocessing, inference and reporting together
 How you validated and revised the AI output: Proofreading, and end-to-end runs of the desktop simulator on the CC0 dashcam test clips
 The challenges or limitations you faced while using AI: Keeping the loop fast enough for real time while still drawing overlays and recording
-Authors: Blake Pennel
+Authors: Blake Pennel, Luke Reicherter
 Creation Date: 11/5/2026
+
+Revision 11/17/2026 - Luke Reicherter and Claude Opus 5.5 (Sprint 2, criterion 7.2):
+A description of how and why AI was used: Claude Opus 5.5 used to draw the driving-lane zone used by the road-object rule on the live window and recording
+How you validated and revised the AI output: Proofreading, and the annotated recording of the demo run
+The challenges or limitations you faced while using AI: None
 """
 from __future__ import annotations
 
@@ -53,9 +58,13 @@ COLORS = {
 
 
 def draw(frame: np.ndarray, dets: Iterable[Detection], events: Iterable[HazardEvent], info: str = "",
-         hood_frac: float = 0.0) -> np.ndarray:
+         hood_frac: float = 0.0, lane: tuple[float, float, float] | None = None) -> np.ndarray:
     out = frame.copy()
     h, w = out.shape[:2]
+    if lane is not None:  # road-object zone (criterion 7.2): x_min, x_max, y_min of the box centre
+        x1, x2, y1 = int(lane[0] * w), int(lane[1] * w), int(lane[2] * h)
+        cv2.rectangle(out, (x1, y1), (x2, h - 1), (255, 200, 0), 1)
+        cv2.putText(out, "lane", (x1 + 4, y1 + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1)
     if hood_frac > 0:  # boxes below this line are ignored (car body)
         y = int((1 - hood_frac) * h)
         cv2.line(out, (0, y), (w, y), (80, 80, 255), 1)
@@ -158,7 +167,8 @@ class Pipeline:
         self.recent_events = [(t, e) for t, e in self.recent_events if now - t < 3.0]
         if self.show or self.record_path or self.on_frame:
             info = f"frame {frame.index}  t={frame.ts:6.1f}s  infer {ms:5.1f} ms  dets {len(dets)}"
-            vis = draw(frame.image, dets, [e for _, e in self.recent_events], info, hood_frac=self.manager.hood_frac)
+            vis = draw(frame.image, dets, [e for _, e in self.recent_events], info, hood_frac=self.manager.hood_frac,
+                       lane=self._lane())
             if self.record_path:
                 if self._writer is None:
                     self.record_path.parent.mkdir(parents=True, exist_ok=True)
@@ -173,6 +183,12 @@ class Pipeline:
             if self.on_frame:
                 self.on_frame(vis, dets, events)
         return dets, events
+
+    def _lane(self):
+        cfg = getattr(self.manager, "cfg", None)
+        if cfg is None or not getattr(cfg, "road_object_enabled", False):
+            return None
+        return (cfg.lane_x_min, cfg.lane_x_max, cfg.lane_y_min)
 
     def run(self, source: Iterable[Frame]) -> PipelineStats:
         try:

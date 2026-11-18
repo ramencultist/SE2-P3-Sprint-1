@@ -13,6 +13,8 @@ How you validated and revised the AI output: Proofreading, and running it to pro
 The challenges or limitations you faced while using AI: Android cannot play the source .ogv files, so the clips have to be converted with ffmpeg
 Authors: Blake Pennel
 Creation Date: 11/5/2026
+
+Revision 11/17/2026 - Luke Reicherter: ported Drew Medlock's 11/17/2026 fix from the wazeomatic repository (send a descriptive User-Agent, which Wikimedia now requires, to avoid 403 Forbidden)
 """
 from __future__ import annotations
 
@@ -32,6 +34,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "assets" / "videos"
 
+# Wikimedia requires a descriptive User-Agent with contact info or a repo URL
+USER_AGENT = "WazeomaticTestFetcher/1.0 (https://github.com/ramencultist/SE2-P3-Sprint-1)"
+
 CLIPS = {
     "dashcam_urban_1080p": (
         "https://upload.wikimedia.org/wikipedia/commons/e/ea/Dashcam_Recording_%28urban%29.ogv",
@@ -44,6 +49,12 @@ CLIPS = {
 }
 
 
+def download_file(url: str, dest: Path) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req) as resp, dest.open("wb") as out:
+        shutil.copyfileobj(resp, out)
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     ffmpeg = os.environ.get("FFMPEG") or shutil.which("ffmpeg")
@@ -52,7 +63,7 @@ def main() -> int:
         mp4 = OUT / f"{name}.mp4"
         if not ogv.exists() and not mp4.exists():
             print(f"downloading {name} from {page}")
-            urllib.request.urlretrieve(url, ogv)
+            download_file(url, ogv)
         if not mp4.exists():
             if not ffmpeg:
                 print("ffmpeg not found; keeping .ogv (OpenCV can read it, Android cannot)", file=sys.stderr)

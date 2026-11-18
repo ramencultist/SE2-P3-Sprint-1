@@ -4,15 +4,20 @@ Description: Desktop simulator entry point: runs the full detection pipeline on 
 
 Inputs: Command-line options: video path or camera index, models, thresholds and sinks
 Outputs: Hazard events sent to the chosen sinks, optional display and recording, and a run summary
-External Sources: Claude Fable 5.1
+External Sources: Claude Fable 5.1, Claude Opus 5.5
 Attributions:
 
 Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
 A description of how and why AI was used: Claude Fable 5.1 used to write the command-line front end so a recorded clip can stand in for the camera
 How you validated and revised the AI output: Proofreading, and runs on the CC0 dashcam test clips, sending events to the emulator over adb and TCP
 The challenges or limitations you faced while using AI: Exposing many tuning options while keeping the defaults equal to the phone app
-Authors: Blake Pennel
+Authors: Blake Pennel, Luke Reicherter
 Creation Date: 11/5/2026
+
+Revision 11/17/2026 - Luke Reicherter and Claude Opus 5.5 (Sprint 2, requirements 7 and 9):
+A description of how and why AI was used: Claude Opus 5.5 used to add --decision-log and --verbose (the logged low-confidence, unconfirmed, hood-zone and suppressed detections), --no-road-objects, and a run summary that lists models that failed to load (criterion 7.7)
+How you validated and revised the AI output: Proofreading, and runs on the CC0 dashcam clip with a missing hazard model, a corrupt model file and the decision log written to JSONL
+The challenges or limitations you faced while using AI: Keeping the console readable while still logging every dropped detection
 """
 from __future__ import annotations
 
@@ -23,6 +28,7 @@ Examples
     python -m wazeomatic.run_video clip.mp4 --camera-sim --show --record runs/sim/out.mp4
     python -m wazeomatic.run_video clip.mp4 --sink tcp:192.168.1.20:8765        # to the phone app
     python -m wazeomatic.run_video clip.mp4 --sink adb --adb-dry-run            # straight to emulator
+    python -m wazeomatic.run_video clip.mp4 --decision-log runs/sim/decisions.jsonl -v  # why nothing reported
     python -m wazeomatic.run_video 0 --camera                                    # webcam / Pi camera
     python -m wazeomatic.run_video clip.mp4 --ensemble-model models/hazard_yolo11n_416.onnx --zoom-crop \
         --track-iou 0.3 --class-conf cone=0.5                                    # fused + tracked
@@ -30,12 +36,13 @@ Examples
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
 import yaml
 
-from .build import DetectorSpec, add_detector_args, build_detectors
+from .build import LOAD_ERRORS, DetectorSpec, add_detector_args, build_detectors
 from .fusion import parse_class_thresholds
 from .hood import HoodEstimator
 from .pipeline import Pipeline
@@ -74,10 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-auto-hood", action="store_true",
                     help="do not grow the hood zone from the static bottom rows of the video (wazeomatic/hood.py)")
     ap.add_argument("--stopped-vehicle", action="store_true", help="enable experimental shoulder heuristic")
+    ap.add_argument("--no-road-objects", action="store_true",
+                    help="do not report COCO objects in the driving lane as Hazard > Object (criterion 7.2)")
     ap.add_argument("--event-source", default="sim", choices=["sim", "pi", "phone"])
     # sinks
     ap.add_argument("--sink", action="append", default=[],
-                    help="stdout | jsonl:<path> | tcp:<host>[:port] | adb[:<serial>] | http:<url> (repeatable)")
+                    help="stdout | pretty | jsonl:<path> | tcp:<host>[:port] | adb[:<serial>] | http:<url> (repeatable)")
     ap.add_argument("--adb", default="adb")
     ap.add_argument("--adb-package", help="explicit target package for the broadcast, e.g. com.arlosoft.macrodroid")
     ap.add_argument("--adb-dry-run", action="store_true", help="set dry_run=true on broadcast events")
@@ -85,6 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--show", action="store_true")
     ap.add_argument("--record", help="write annotated video here")
     ap.add_argument("--stats-json", help="write run statistics here")
+    ap.add_argument("--decision-log", help="write every dropped detection / held-back hazard here (JSONL)")
+    ap.add_argument("-v", "--verbose", action="store_true", help="print the decision log to the console")
     return ap
 
 
@@ -101,15 +112,28 @@ def main(argv=None) -> int:
     spec = DetectorSpec.from_args(args)
     detectors = build_detectors(spec)
     if not detectors:
-        raise SystemExit("no models available; run tools/export_onnx.py first")
+        raise SystemExit("no models could be loaded (see the errors above); run tools/export_onnx.py or "
+                         "put hazard_yolo11n.onnx and its .labels.txt in models/")
     print(f"[info] detectors: {spec.describe()}", file=sys.stderr)
 
     cfg = ReportConfig(window=args.window, min_hits=args.min_hits, min_confidence=args.report_conf,
                        min_confidence_by_label=parse_class_thresholds(args.report_class_conf),
                        track_iou=args.track_iou, track_grow=args.track_grow,
                        cooldown_s=args.cooldown, global_cooldown_s=args.global_cooldown, hood_frac=args.hood_frac,
-                       class_to_hazard=class_to_hazard, stopped_vehicle_enabled=args.stopped_vehicle)
-    manager = ReportManager(cfg, source=args.event_source)
+                       class_to_hazard=class_to_hazard, stopped_vehicle_enabled=args.stopped_vehicle,
+                       road_object_enabled=not args.no_road_objects)
+    logging.basicConfig(format="[log] %(message)s", stream=sys.stderr)
+    logging.getLogger("wazeomatic.report").setLevel(logging.INFO if args.verbose else logging.WARNING)
+    decision_file = None
+    if args.decision_log:
+        Path(args.decision_log).parent.mkdir(parents=True, exist_ok=True)
+        decision_file = Path(args.decision_log).open("w", encoding="utf-8")
+
+    def write_decision(dec) -> None:
+        if decision_file is not None:
+            decision_file.write(json.dumps(dec.to_dict()) + "\n")
+
+    manager = ReportManager(cfg, source=args.event_source, on_decision=write_decision)
     hood = None if args.no_auto_hood else HoodEstimator(min_frac=args.hood_frac)
     sinks = build_sinks(args.sink or ["stdout"], adb=args.adb, package=args.adb_package, dry_run=args.adb_dry_run)
 
@@ -134,7 +158,12 @@ def main(argv=None) -> int:
                     record_fps=source.effective_fps, parallel=not args.no_parallel, hood=hood)
     stats = pipe.run(source)
     source.release()
+    if decision_file is not None:
+        decision_file.close()
     summary = stats.summary()
+    summary["dropped"] = dict(sorted(manager.decision_counts.items()))
+    if LOAD_ERRORS:
+        summary["models_not_loaded"] = [f"{p}: {r}" for p, r in LOAD_ERRORS]
     print("[stats] " + json.dumps(summary), file=sys.stderr)
     if args.stats_json:
         Path(args.stats_json).parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,33 @@
+SPRINT 2 DEMO CHECKLIST
+
+SETUP (before recording)
+[ ] Quit heavy apps
+[ ] 3 Terminal windows, in each:  cd ~/Documents/SE2-P3-Sprint-1 && source .venv/bin/activate
+[ ] ./tools/emulator/start_mock_waze_mac.sh      (wait for "Mock Waze is running")
+[ ] python tools/demo_sprint2.py 0 --camera --no-phone   (allow camera, press q)
+[ ] Bag/chair in view, second small object ready
+[ ] Emulator right, Terminal left
+[ ] Cmd+Shift+5 -> Record Entire Screen
+
+RECORD
+[ ] 1. python -m pytest -v tests/test_sprint2_requirements.py      (23 passed)
+[ ] 2. python tools/demo_sprint2.py --check                        (emulator found)
+[ ] 3. python tools/demo_sprint2.py --ping                         (emulator: Hazard > Construction)
+[ ] 4. python tools/demo_sprint2.py 0 --camera -- --no-auto-hood --verbose
+    [ ] point out "[error] model ... not loaded ... continuing"
+    [ ] object in blue lane box, step away -> REPORT banner + emulator Hazard > Object
+    [ ] leave it 15s -> "cooldown" lines, no 2nd report
+    [ ] flash 2nd object briefly -> "unconfirmed"
+    [ ] object below red line -> "hood_zone"
+    [ ] hold the bag -> "carried_object"
+    [ ] cover/dim it -> "low_confidence"
+    [ ] press q
+[ ] 5. Terminal 2:
+       cat runs/demo/events.jsonl
+       head -20 runs/demo/decisions.jsonl
+       ~/Library/Android/sdk/platform-tools/adb logcat -d -s MockWazeMacro | tail -4
+[ ] Stop recording (also saved: runs/demo/annotated.mp4)
+
+IF STUCK
+- "System UI isn't responding" -> tap Wait or rerun the setup script
+- Emulator not reacting -> rerun the setup script

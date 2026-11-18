@@ -7,15 +7,20 @@ Description: Loads the configured models and runs each frame through inference, 
 
 Inputs: Frames from the camera or video source and the app Settings
 Outputs: Detections and timings for the screen, and HazardEvents passed to the Reporter
-External Sources: Claude Fable 5.1
+External Sources: Claude Fable 5.1, Claude Opus 5.5
 Attributions:
 
 Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
 A description of how and why AI was used: Claude Fable 5.1 used to write the on-device equivalent of the desktop pipeline
 How you validated and revised the AI output: Proofreading, the JVM unit tests (gradlew test), and emulator Stage B: detector app in video mode sending broadcasts that mock Waze turns into reports with the matching hazard type
 The challenges or limitations you faced while using AI: Making sure process() is only called from one thread at a time
-Authors: Blake Pennel
+Authors: Blake Pennel, Luke Reicherter
 Creation Date: 11/5/2026
+
+Revision 11/17/2026 - Luke Reicherter and Claude Opus 5.5 (Sprint 2, requirements 7 and 9):
+A description of how and why AI was used: Claude Opus 5.5 used to send every report-manager Decision (low confidence, unconfirmed, hood zone, cooldown) to logcat under the WazeomaticDecision tag
+How you validated and revised the AI output: Proofreading, and the JVM unit tests (gradlew testDebugUnitTest)
+The challenges or limitations you faced while using AI: None beyond keeping logcat output to one line per decision
 */
 
 package com.wazeomatic.detector
@@ -51,7 +56,10 @@ class Pipeline(ctx: Context, private val settings: Settings, private val reporte
     private val hoodGrey: FloatArray? = hood?.let { FloatArray(it.width * it.height) }
     /** Current hood fraction (for the overlay). */
     val hoodFrac: Float get() = reportManager.hoodFrac
-    private val reportManager = ReportManager(settings.reportConfig(), source = "phone")
+    private val reportManager = ReportManager(settings.reportConfig(), source = "phone").apply {
+        // criteria 7.3-7.6 and 9.3-9.5: every dropped detection is logged (adb logcat -s WazeomaticDecision)
+        onDecision = { Log.i(DECISION_TAG, it.toString()) }
+    }
     /** Second inference pass on a zoomed region of the road ahead; null = single pass. */
     val zoomCrop: ZoomCrop? = settings.zoomCropOrNull
     private val cropRect = Rect()
@@ -183,6 +191,7 @@ class Pipeline(ctx: Context, private val settings: Settings, private val reporte
     companion object {
         private const val TAG = "Wazeomatic"
         const val PERF_TAG = "WazeomaticPerf"
+        const val DECISION_TAG = "WazeomaticDecision"
 
         fun readAsset(ctx: Context, name: String): ByteArray? = try {
             ctx.assets.open(name).use { it.readBytes() }

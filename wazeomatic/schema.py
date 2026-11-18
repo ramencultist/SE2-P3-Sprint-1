@@ -13,15 +13,20 @@ Description: A confirmed hazard sent to the phone, with hazard type, confidence,
 
 Inputs: Model class labels and confirmed detections from the report manager
 Outputs: JSON event lines and broadcast Intent extras with hazard category, confidence score and timestamp
-External Sources: Claude Fable 5.1
+External Sources: Claude Fable 5.1, Claude Opus 5.5
 Attributions:
 
 Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
 A description of how and why AI was used: Claude Fable 5.1 used to define the hazard to Waze menu mapping and the event JSON so the desktop pipeline, the Android app and the macro share one contract
 How you validated and revised the AI output: Proofreading, tests/test_report_manager.py checking the event JSON and Intent extras, and the schema check in tools/emulator/run_e2e.py against the Kotlin mirror
 The challenges or limitations you faced while using AI: Keeping the hazard_type strings identical across Python, Kotlin and the macro, and matching them to the current Waze menu labels
-Authors: Blake Pennel
+Authors: Blake Pennel, Luke Reicherter
 Creation Date: 11/5/2026
+
+Revision 11/17/2026 - Luke Reicherter and Claude Opus 5.5 (Sprint 2, requirement 7):
+A description of how and why AI was used: Claude Opus 5.5 used to map a "debris" model class to HAZARD_ON_ROAD_OBJECT (Hazard > Object) for criterion 7.2
+How you validated and revised the AI output: Proofreading, and tests/test_sprint2_requirements.py checking the Waze category and subcategory sent for each Sprint 2 hazard
+The challenges or limitations you faced while using AI: The shipped model has no debris class yet, so road objects also come from COCO classes in the lane (see report_manager.py)
 """
 from __future__ import annotations
 
@@ -78,6 +83,8 @@ DEFAULT_CLASS_TO_HAZARD: dict[str, str] = {
     "delineator": "HAZARD_ON_ROAD_CONSTRUCTION",
     "barricade": "HAZARD_ON_ROAD_CONSTRUCTION",
     "worker": "HAZARD_ON_ROAD_CONSTRUCTION",
+    "debris": "HAZARD_ON_ROAD_OBJECT",      # Sprint 2 (7.2): a future model class; until then COCO
+                                            # objects in the lane map here (report_manager.py)
     "police_vehicle": "POLICE",
     # COCO classes used from the stock detector
     "dog": "HAZARD_SHOULDER_ANIMALS",

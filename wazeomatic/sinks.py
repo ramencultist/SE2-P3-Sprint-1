@@ -5,6 +5,9 @@ Description: Delivers hazard events once the pipeline trusts them: to stdout, a 
 Class Name: StdoutSink
 Description: Prints each event as one JSON line
 
+Class Name: PrettySink
+Description: Prints each event as a readable banner (hazard, Waze menu path, confidence, time) for live demos
+
 Class Name: JsonlSink
 Description: Appends each event to a JSONL log file
 
@@ -19,15 +22,20 @@ Description: Posts each event to a webhook or local HTTP endpoint
 
 Inputs: HazardEvents from the pipeline and sink specs from the command line
 Outputs: Event JSON delivered to the phone, a log file, the console or a webhook
-External Sources: Claude Fable 5.1
+External Sources: Claude Fable 5.1, Claude Opus 5.5
 Attributions:
 
 Creation 11/5/2026 - Blake Pennel and Claude Fable 5.1:
 A description of how and why AI was used: Claude Fable 5.1 used to write the transports that carry detections from the Raspberry Pi or desktop to the phone
 How you validated and revised the AI output: Proofreading, and the pytest unit tests in tests/ run on the desktop (tests/test_sinks.py checks the adb command, JSONL output, a TCP round trip and that a down TCP link never raises)
 The challenges or limitations you faced while using AI: Keeping the pipeline running when the phone connection drops and reconnecting on its own
-Authors: Blake Pennel
+Authors: Blake Pennel, Luke Reicherter
 Creation Date: 11/5/2026
+
+Revision 11/17/2026 - Luke Reicherter and Claude Opus 5.5 (Sprint 2 demo):
+A description of how and why AI was used: Claude Opus 5.5 used to add the "pretty" sink that prints a readable banner per report for the Sprint 2 demo (tools/demo_sprint2.py)
+How you validated and revised the AI output: Proofreading, tests/test_sinks.py, and the demo run on the CC0 dashcam clip
+The challenges or limitations you faced while using AI: None
 """
 from __future__ import annotations
 
@@ -61,6 +69,28 @@ class StdoutSink:
     def send(self, ev: HazardEvent) -> None:
         sys.stdout.write(ev.to_json() + "\n")
         sys.stdout.flush()
+
+    def close(self) -> None:
+        pass
+
+
+class PrettySink:
+    """One readable block per report, for an audience watching the terminal."""
+
+    def __init__(self, stream=None):
+        self.stream = stream or sys.stdout
+        self.count = 0
+
+    def send(self, ev: HazardEvent) -> None:
+        self.count += 1
+        path = ev.waze.waze_category + (f" > {ev.waze.waze_subcategory}" if ev.waze.waze_subcategory else "")
+        when = time.strftime("%H:%M:%S", time.localtime(ev.ts))
+        frame = f", frame {ev.frame_index}" if ev.frame_index is not None else ""
+        self.stream.write(
+            f"\n=== REPORT #{self.count}: {ev.hazard_type} ===\n"
+            f"    seen: {ev.label} ({ev.confidence:.2f}) at {when}{frame}\n"
+            f"    Waze menu: {path}\n")
+        self.stream.flush()
 
     def close(self) -> None:
         pass
@@ -181,12 +211,14 @@ class HttpSink:
 
 
 def build_sinks(specs: list[str], **kw) -> list:
-    """Parse CLI sink specs: stdout | jsonl:<path> | tcp:<host>[:port] | adb[:<serial>] | http:<url>"""
+    """Parse CLI sink specs: stdout | pretty | jsonl:<path> | tcp:<host>[:port] | adb[:<serial>] | http:<url>"""
     sinks = []
     for s in specs:
         kind, _, arg = s.partition(":")
         if kind == "stdout":
             sinks.append(StdoutSink())
+        elif kind == "pretty":
+            sinks.append(PrettySink())
         elif kind == "jsonl":
             sinks.append(JsonlSink(arg or "runs/events.jsonl"))
         elif kind == "tcp":

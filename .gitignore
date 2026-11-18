@@ -1,0 +1,35 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+runs/
+
+# Large artifacts (kept out of git; see docs/model-research.md for how to rebuild)
+models/*.onnx
+models/*.pt
+models/*.tflite
+!models/README.md
+assets/videos/*
+!assets/videos/README.md
+datasets/
+data/
+
+# Android
+android/**/build/
+android/**/.gradle/
+android/**/local.properties
+android/**/.idea/
+android/**/*.iml
+android/**/.cxx/
+*.apk
+*.aab
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# stray checkpoints downloaded by ultralytics
+/*.pt
