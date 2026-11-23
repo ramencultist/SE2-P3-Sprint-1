@@ -18,3 +18,7 @@ python -m pytest -q tests
 python tools/demo_sprint2.py --check            # models and phone status
 python tools/demo_sprint2.py <clip.mp4>         # CV pipeline -> phone -> MacroDroid -> Waze (dry run)
 ```
+
+Trained models are hosted at: https://kansas-my.sharepoint.com/:f:/g/personal/b035p624_home_ku_edu/IgBagvT6lkGVSZIOVxojNN41AUTROiLM0rebVrMMA14Icok?e=ayQU8v
+
+To use download contents of models/ and place in models/ folder locally.
