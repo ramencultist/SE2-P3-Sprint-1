@@ -34,10 +34,14 @@ jobs:
           bash android/mockwaze/gradlew -p android/mockwaze --no-daemon assembleDebug
 
       - name: Boot Android API 35 and exercise the mock reporting flow
+        shell: bash
         run: |
+          trap 'printf "::error::Failed command: %s\n" "$BASH_COMMAND"' ERR
           image='system-images;android-35;google_apis;x86_64'
-          sdkmanager 'emulator' "$image"
-          printf 'no\n' | avdmanager create avd --name sprint2 --package "$image"
+          tools="$ANDROID_HOME/cmdline-tools/latest/bin"
+          export PATH="$ANDROID_HOME/platform-tools:$PATH"
+          "$tools/sdkmanager" 'emulator' "$image"
+          printf 'no\n' | "$tools/avdmanager" create avd --name sprint2 --package "$image"
           sudo chmod a+rw /dev/kvm
           "$ANDROID_HOME/emulator/emulator" -avd sprint2 -port 5554 -no-window -no-audio \
             -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
