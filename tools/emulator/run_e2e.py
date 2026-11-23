@@ -7,6 +7,9 @@ Description: Drives the emulator over adb: injects broadcasts, taps, pulls logs 
 
 Inputs: A running emulator, the mock Waze and detector APKs and a test video
 Outputs: Pass or fail checks for Stage A and Stage B and a run folder with logs, screenshots and a summary
+Preconditions: The Android SDK and emulator are available. Construction mode needs the detector APK and a labeled clip.
+Postconditions: Construction mode passes only after exactly one matching detector event and mock report.
+Errors: Missing prerequisites, malformed evidence, and an absent or mismatched report fail construction mode.
 External Sources: Claude Fable 5.1
 Attributions:
 
@@ -16,6 +19,7 @@ How you validated and revised the AI output: Proofreading, and repeated runs unt
 The challenges or limitations you faced while using AI: Emulator not-responding dialogs and slow boots interrupting the taps
 Authors: Blake Pennel
 Creation Date: 11/5/2026
+Revision 11/22/2026: Codex added strict construction replay and timestamp matching.
 """
 from __future__ import annotations
 
@@ -35,6 +39,7 @@ Usage (from the repo root):
   .venv\\Scripts\\python.exe tools\\emulator\\run_e2e.py              # Stage A + B (B skipped if no detector)
   .venv\\Scripts\\python.exe tools\\emulator\\run_e2e.py --stage a
   .venv\\Scripts\\python.exe tools\\emulator\\run_e2e.py --stage b --video-seconds 90
+  .venv\\Scripts\\python.exe tools\\emulator\\run_e2e.py --stage b --expect-construction --video workzone.mp4
 
 Everything (logcat, screenshots, pulled jsonl, summary) goes to runs/emulator/<timestamp>/.
 """
@@ -61,11 +66,12 @@ MOCK_APK = REPO / "android" / "mockwaze" / "app" / "build" / "outputs" / "apk" /
 DET_APK_GLOB = str(REPO / "android" / "detector" / "app" / "build" / "outputs" / "apk" / "debug" / "*.apk")
 REMOTE_DIR = f"/sdcard/Android/data/{MOCK_PKG}/files"
 HAZARD_ACTION = "com.wazeomatic.HAZARD_DETECTED"
+CONSTRUCTION = "HAZARD_ON_ROAD_CONSTRUCTION"
 
 # Expected menu paths, must match wazeomatic/schema.py (checked at start-up if importable).
 EXPECTED = {
     "HAZARD_ON_ROAD_POTHOLE": ("Hazard", "Pothole"),
-    "HAZARD_ON_ROAD_CONSTRUCTION": ("Hazard", "Construction"),
+    CONSTRUCTION: ("Hazard", "Construction"),
     "HAZARD_ON_ROAD_OBJECT": ("Hazard", "Object"),
     "HAZARD_SHOULDER_CAR_STOPPED": ("Hazard", "Car on shoulder"),
     "HAZARD_SHOULDER_ANIMALS": ("Hazard", ""),
@@ -380,10 +386,34 @@ class Runner:
         self.save_jsonl("_stage_a")
 
     # ------------------------------------------------------------ stage B
-    def stage_b(self, video: str, video_seconds: int, wait_s: int) -> None:
+    def check_construction_replay(self, event_lines: list[str], reports: list[dict]) -> None:
+        events = []
+        for line in event_lines:
+            match = re.search(r"\bWazeomaticEvent\s*:\s*(\{.*\})", line)
+            if match:
+                events.append(json.loads(match.group(1)))
+        sends = [r for r in reports if r.get("action") == "send" and r.get("via") == "auto_macro"]
+        event_ok = self.check("9.7 detector emitted exactly one Construction event",
+                              len(events) == 1 and events[0].get("hazard_type") == CONSTRUCTION,
+                              f"decoded {len(events)} event(s) from {len(event_lines)} log line(s)")
+        report_ok = self.check("9.7 mock recorded exactly one Hazard > Construction report",
+                               len(sends) == 1 and sends[0].get("hazard_type") == CONSTRUCTION
+                               and (sends[0].get("category"), sends[0].get("subcategory")) == EXPECTED[CONSTRUCTION],
+                               f"{len(sends)} mock send(s)")
+        if event_ok and report_ok:
+            # Reporter rounds the broadcast timestamp to three decimals.
+            sent_ts = float(sends[0]["event_ts"])
+            detector_ts = float(events[0]["ts"])
+            self.check("9.7 report timestamp matches detector event",
+                       abs(sent_ts - detector_ts) <= 0.00051, f"{sent_ts} vs {detector_ts}")
+
+    def stage_b(self, video: str, video_seconds: int, wait_s: int, expect_construction: bool = False) -> None:
         self.log("=== Stage B: detector video mode -> mock Waze ===")
         apks = sorted(glob.glob(DET_APK_GLOB), key=os.path.getmtime)
         installed = DET_PKG in self.sh(f"pm path {DET_PKG}")
+        if expect_construction and not apks:
+            self.check("Stage B detector APK built", False, "build the detector with the v3 model")
+            return
         if not apks and not installed:
             self.skip("Stage B", "detector APK not built (android/detector/app/build/outputs/apk/debug/*.apk)")
             return
@@ -410,8 +440,10 @@ class Runner:
         time.sleep(2)
         mark = self.logcat_text().count("\n")
         self.sh(f"am force-stop {DET_PKG}")
+        # Route sends exclusively to the test app. The real Waze flow stays in dry-run.
         out = self.sh(f"am start -n {DET_PKG}/.MainActivity --es source video --es video test.mp4 "
-                      f"--ez reset_settings true {self.detector_extras}".strip())
+                      f"--ez reset_settings true --es dry_run false {self.detector_extras} "
+                      f"--es target_package {MOCK_PKG}")
         self.log("start detector: " + out.strip().replace("\n", " | "))
         self.screenshot("B_detector_start")
         # On a phone Waze is in front and the detector works from its foreground service; reproduce that
@@ -437,6 +469,9 @@ class Runner:
         received = [m for m in macro if m.get("hazard_type") in EXPECTED]
         self.log(f"detector event lines: {len(ev_lines)} types={sorted(det_types)}; mock received {len(received)}; "
                  f"reports {len(reports)}")
+        if expect_construction:
+            self.check_construction_replay(ev_lines, reports)
+            return
         if not ev_lines:
             self.skip("B2 detector emitted events", "no WazeomaticEvent lines (nothing detected or tag differs)")
             return
@@ -500,13 +535,22 @@ def main() -> int:
     ap.add_argument("--stage", choices=["a", "b", "all"], default="all")
     ap.add_argument("--install", action="store_true", help="reinstall mock Waze even if present")
     ap.add_argument("--no-start", action="store_true", help="do not start the emulator if it is not running")
-    ap.add_argument("--video", default=r"F:\dev\datasets\dashcam\dashcam_urban_1080p.ogv")
+    ap.add_argument("--video", help="local replay clip for Stage B")
+    ap.add_argument("--expect-construction", action="store_true",
+                    help="require one Construction event and matching mock report from the labeled clip")
     ap.add_argument("--video-seconds", type=int, default=0, help="trim the clip (0 = whole 120 s)")
     ap.add_argument("--stage-b-wait", type=int, default=150, help="seconds to let the detector run")
     ap.add_argument("--detector-extras", default="",
                     help="extra `am start` arguments for the detector in Stage B, e.g. "
                          "\"--es class_map car=HAZARD_ON_ROAD_OBJECT --es conf 0.4\" to force events on a hazard-free clip")
     args = ap.parse_args()
+    if args.expect_construction and (args.stage == "a" or not args.video or args.detector_extras):
+        ap.error("--expect-construction requires Stage B and an explicit --video, with default detector settings")
+    video = args.video or r"F:\dev\datasets\dashcam\dashcam_urban_1080p.ogv"
+    if args.expect_construction and not Path(video).is_file():
+        ap.error(f"construction clip not found: {video}")
+    if not Path(ADB).is_file():
+        ap.error(f"adb not found at {ADB}. Set ANDROID_HOME to the Android SDK directory.")
 
     check_schema()
     out = REPO / "runs" / "emulator" / datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -524,7 +568,7 @@ def main() -> int:
         if args.stage in ("a", "all"):
             r.stage_a()
         if args.stage in ("b", "all"):
-            r.stage_b(args.video, args.video_seconds, args.stage_b_wait)
+            r.stage_b(video, args.video_seconds, args.stage_b_wait, args.expect_construction)
     except Exception as e:  # keep the summary even if something blows up
         r.check("runner crashed", False, repr(e))
     finally:

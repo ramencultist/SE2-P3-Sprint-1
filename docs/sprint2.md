@@ -40,7 +40,7 @@ The goal from the 11/11 meeting: show the model detecting a hazard and the macro
 
 | ID | Criterion (short) | Where | Test | Status |
 | --- | --- | --- | --- | --- |
-| 7.1 | Pothole in 3 of 10 frames -> `HAZARD_ON_ROAD_POTHOLE`, Hazard > Pothole | `ReportManager.update` | py `test_7_1`, kt `c7_1` | Pipeline done. Needs the hazard model and the macro subtype branch for Waze |
+| 7.1 | Pothole in 3 of 10 frames -> `HAZARD_ON_ROAD_POTHOLE`, Hazard > Pothole | `ReportManager.update` | py `test_7_1`, kt `c7_1` | Event logic tested. Shared model available. Pothole footage and phone report flow pending |
 | 7.2 | Debris or object in the lane -> `HAZARD_ON_ROAD_OBJECT`, Hazard > Object | `_hazard_for` / `_in_lane`, `debris` class in `schema.py` | py `test_7_2_*`, kt `c7_2_*` | Done with COCO objects (suitcase, bag, chair, ...). The custom model has no debris class yet |
 | 7.3 | Fewer than 3 of 10 frames -> no event, logged | `UNCONFIRMED` decision | py `test_7_3`, kt `c7_3` | Done |
 | 7.4 | Below threshold -> no event, logged with score | `LOW_CONFIDENCE` decision | py `test_7_4`, kt `c7_4` | Done (only scores above the detector's 0.35 cut reach the log) |
@@ -48,19 +48,19 @@ The goal from the 11/11 meeting: show the model detecting a hazard and the macro
 | 7.6 | Box in the hood zone -> ignored, logged | `HOOD_ZONE` decision, `hood.py` | py `test_7_6`, kt `c7_6` | Done |
 | 7.7 | Model missing or fails to load -> logged, shown, no crash, other models keep running | `build.py` `_try_load`, `Pipeline.kt` model status | py `test_7_7` (missing, corrupt, no labels) | Done. Checked on a real run without the hazard model |
 | 7.8 | Labelled clip -> exactly one event per hazard, correct type | `Pipeline`, `tools/eval_events.py` | py `test_7_8` (scripted 90 s clip) | Done on a scripted clip. A labelled real pothole/debris clip is still needed |
-| 9.1 | Cones, signs, delineators, barricades or workers in 3 of 10 frames -> `HAZARD_ON_ROAD_CONSTRUCTION` | `classes.yaml`, `schema.py` | py `test_9_1` (all five classes), kt `c9_1` | Pipeline done. Needs the hazard model |
+| 9.1 | Cones, signs, delineators, barricades or workers in 3 of 10 frames -> `HAZARD_ON_ROAD_CONSTRUCTION` | `classes.yaml`, `schema.py` | py `test_9_1` (all five classes), kt `c9_1` | Verified one detector event on the labeled desktop replay. Phone report flow pending |
 | 9.2 | Several construction classes -> one event | one hit per hazard type per frame | py `test_9_2`, kt `c9_2` | Done |
 | 9.3 | Still in the work zone after a report -> nothing until the cooldown ends, suppressions logged | `COOLDOWN` decision | py `test_9_3`, kt `c9_3` | Done |
 | 9.4 | Stray cone seen briefly -> no report, logged | `UNCONFIRMED` decision | py `test_9_4`, kt `c9_4` | Done |
 | 9.5 | Low light or partly hidden -> below threshold, logged with scores | `LOW_CONFIDENCE` decision | py `test_9_5`, kt `c9_5` | Done |
 | 9.6 | Macro cannot find Construction -> retry, notify the user, log | MacroDroid macro | n/a | To do in the macro, see [the macro guide](../android_setup/macro_setup_guide.md#sprint-2-subtypes-and-retries) |
-| 9.7 | Work-zone clip on the emulator -> exactly one Hazard > Construction in mock Waze | `tools/emulator/run_e2e.py` | emulator Stage B | Needs the hazard model and a work-zone clip on the emulator |
+| 9.7 | Work-zone clip on the emulator -> exactly one Hazard > Construction in mock Waze | `tools/emulator/run_e2e.py` | strict emulator Stage B | Runner checks verified in Python. Emulator run pending |
 
 Run the tests:
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q tests                                   # 74 tests, 23 of them for sprint 2
+python -m pytest -q tests                                   # 80 tests, including strict runner checks
 cd android/detector && ./gradlew testDebugUnitTest          # 53 tests, 13 of them for sprint 2 (JDK 17-21)
 ```
 
@@ -73,12 +73,10 @@ USB with adb. That is the Pi-to-phone path from the architecture document. The p
 **Before the demo**
 
 1. `pip install -r requirements.txt`
-2. Models in `models/`:
-   - `coco_yolo11n.onnx`: `pip install ultralytics` then `python tools/export_onnx.py --coco --imgsz 640` (enough for Hazard > Object)
-   - `hazard_yolo11n.onnx`: the trained six-class model, needed for potholes and construction. It is not committed; copy it from whoever trained it.
+2. Follow the [model setup in the README](../README.md#sprint-2) to get the stock COCO and six-class v3 hazard exports.
 3. A clip in `assets/videos/`: `python tools/fetch_test_videos.py` downloads the CC0 dashcam clips. They are
-   hazard-free apart from one parking-garage cone, so they show the pipeline staying quiet. For a positive demo use
-   team dashcam footage of a work zone or a pothole, or a live camera.
+   hazard-free apart from one parking-garage cone, so they show the pipeline staying quiet. For a positive construction
+   demo, use the labeled work-zone clip in the team's SharePoint model package.
 4. The phone: USB debugging on, MacroDroid with the sprint 1 macro, Waze open. Run `python tools/demo_sprint2.py --check`.
 5. `python tools/demo_sprint2.py --ping` sends one test Construction broadcast. The macro should open Waze's report menu.
 
@@ -107,13 +105,35 @@ python tools/demo_sprint2.py 0 --camera -- --no-auto-hood    # webcam -> pipelin
 `adb logcat -s MockWazeMacro MockWazeReport`. Leave the emulator's animation settings on: with animator duration
 at 0, the confirm sheet sends by itself before the macro can tap.
 
-**Safety.** The demo always sends `dry_run=true`, so the macro stops before Report. A recorded clip does not show
-a hazard at the phone's real location, so submitting would put a false report on the public map.
+**Safety.** The demo sends `dry_run=true`. On a real phone, the macro must cancel the confirmation sheet before the
+auto-send countdown expires. A recorded clip does not show a hazard at the phone's real location.
+
+## Construction replay
+
+After copying the model files and labeled clip to the checkout, run without a phone or emulator:
+
+```powershell
+python -m wazeomatic.run_video assets/videos/labelled/argo_2ff4f798_workzone.mp4 --sink stdout --stats-json runs/construction/stats.json
+```
+
+The full 319-frame input replayed on Windows with the v3 hazard and 416 px COCO exports, using every third frame
+and default thresholds. It processed 107 inference frames and emitted exactly one `HAZARD_ON_ROAD_CONSTRUCTION`
+event at processed frame 6 (`delineator`, confidence 0.790). This verifies the desktop inference and event path.
+
+For criterion 9.7, build both APKs with the models in place, then run the strict check on the configured
+[Windows emulator](../tools/emulator/README.md) from the repo root:
+
+```powershell
+python tools/emulator/run_e2e.py --install --stage b --expect-construction --video assets/videos/labelled/argo_2ff4f798_workzone.mp4
+```
+
+The runner targets the Mock Waze package and requires one Construction detector event and one
+`Hazard > Construction` mock send with the matching timestamp. The run folder holds the detector log,
+mock report log, screenshots, and summary.
 
 ## Open items
 
-- Get `hazard_yolo11n.onnx` into the hands of everyone running the demo (a GitHub release asset or shared drive; it is 10 MB).
 - Add the subtype branch and the retry/notify path (9.6) to the MacroDroid macro.
-- Record team dashcam footage of a real work zone and a pothole, and label it, for 7.8 and 9.7.
+- Verify 7.8 with labeled pothole and debris footage. The checked-in scripted replay covers the event logic.
 - Train a `debris` class into the hazard model; until then 7.2 relies on COCO objects.
-- Run the emulator suite (`tools/emulator/run_e2e.py`, Windows PowerShell scripts) with a work-zone clip for 9.7.
+- Run strict Stage B with the shared work-zone clip for 9.7.

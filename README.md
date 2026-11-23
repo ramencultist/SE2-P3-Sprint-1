@@ -1,6 +1,6 @@
-The selected requirements for the sprint 1 and now sprint 2 are contained in the [EECS 581-Project 3 Requirements Group 1.xlsx](EECS%20581-Project%203%20Requirements%20Group%201.xlsx)
+Sprint assignments are recorded in the [requirements stack](EECS%20581-Project%203%20Requirements%20Group%201.xlsx).
 
-Updated requirements artifacts for validation are contained in [EECS 581 Project 3 Architecture.docx](EECS%20581%20Project%203%20Architecture.docx)
+The [architecture document](EECS%20581%20Project%203%20Architecture.docx) includes the Sprint 2 acceptance criteria and Sprint 3 criteria for police detection (#3) and the Android UI (#6).
 
 The sprint 1 branch contains all the information for sprint 1 frozen for the 11/8/2026 deadline at 11:59 PM.
 
@@ -21,4 +21,8 @@ python tools/demo_sprint2.py <clip.mp4>         # CV pipeline -> phone -> MacroD
 
 Trained models are hosted at: https://kansas-my.sharepoint.com/:f:/g/personal/b035p624_home_ku_edu/IgBagvT6lkGVSZIOVxojNN41AUTROiLM0rebVrMMA14Icok?e=ayQU8v
 
-To use download contents of models/ and place in models/ folder locally.
+For the Sprint 2 release, copy `models/hazard_yolo11n_v3.onnx` from SharePoint into the checkout as
+`models/hazard_yolo11n.onnx`. Use the checked-in six-class `hazard_yolo11n.labels.txt`. The unversioned
+hazard model in SharePoint is the seven-class v4 export. Copy `models/coco_yolo11n.onnx` alongside it.
+The labeled work-zone clip is in `Video Data/assets/videos/labelled/argo_2ff4f798_workzone.mp4` on SharePoint.
+See the [Sprint 2 runbook](docs/sprint2.md#construction-replay) for desktop and emulator verification.

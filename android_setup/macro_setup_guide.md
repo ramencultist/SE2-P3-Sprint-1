@@ -52,6 +52,7 @@ The existing macro branches on `waze_category`, so it already opens the Hazard m
    subtype click up to 2 more times.
 4. If it still fails, show a notification ("Waze report failed: Construction") and write the failure to the macro log.
    Do not tap anything else.
-5. Keep honoring `dry_run`: when it is `true`, stop before the final Report button.
+5. When `dry_run` is `true` or the macro's dry-run setting is enabled, tap Cancel or go back before the
+   confirmation countdown expires. Verify that the sheet closed and log the cancellation.
 
 Test it with `python tools/demo_sprint2.py --ping` (one Construction broadcast), then with a clip or the live camera.

@@ -19,6 +19,7 @@ How you validated and revised the AI output: Proofreading each test against the 
 The challenges or limitations you faced while using AI: Criteria 9.6 (MacroDroid retry) and 9.7 (emulator run) need a phone or the emulator, so they are covered by the demo and run_e2e.py, not here; 7.8 is checked with a scripted clip because the labelled real footage is not in the repository
 Authors: Luke Reicherter
 Creation Date: 11/17/2026
+Revision 11/22/2026: Codex added checks for the emulator runner's construction evidence.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ import json
 import numpy as np
 import pytest
 
+from tools.emulator.run_e2e import CONSTRUCTION, Runner
 from wazeomatic.build import LOAD_ERRORS, DetectorSpec, build_detectors
 from wazeomatic.pipeline import Pipeline
 from wazeomatic.report_manager import (CARRIED_OBJECT, COOLDOWN, HOOD_ZONE, LOW_CONFIDENCE, UNCONFIRMED,
@@ -289,3 +291,23 @@ def test_decision_callback_receives_every_entry():
     rm = ReportManager(ReportConfig(global_cooldown_s=0), clock=FakeClock(), on_decision=seen.append)
     rm.update([det("pothole", 0.1)])
     assert len(seen) == 1 and seen[0].reason == LOW_CONFIDENCE
+
+
+@pytest.mark.parametrize(("event_count", "report_count", "report_ts", "expected"), [
+    (1, 1, "1730000000.123", 0),
+    (0, 1, "1730000000.123", 1),
+    (1, 0, "1730000000.123", 1),
+    (2, 1, "1730000000.123", 1),
+    (1, 2, "1730000000.123", 1),
+    (1, 1, "1730000000.124", 1),
+])
+def test_9_7_runner_requires_one_matching_report(tmp_path, event_count, report_count, report_ts, expected):
+    runner = Runner("emulator-5554", tmp_path)
+    event = {"hazard_type": CONSTRUCTION, "ts": 1730000000.12345}
+    line = f"11-22 20:00:00.123 111 222 I WazeomaticEvent: {json.dumps(event)}"
+    report = {"hazard_type": CONSTRUCTION, "category": "Hazard", "subcategory": "Construction",
+              "action": "send", "via": "auto_macro", "event_ts": report_ts}
+
+    runner.check_construction_replay([line] * event_count, [report] * report_count)
+
+    assert runner.summary() == expected
