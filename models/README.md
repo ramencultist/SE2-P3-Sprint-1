@@ -1,6 +1,15 @@
 # Model files
 
-Exported models live here but are not committed (see `.gitignore`).
+Sprint 2 uses the six-class `hazard_yolo11n_v3.onnx` from the
+[team SharePoint model folder](../README.md#sprint-2). Save it here as `hazard_yolo11n.onnx`
+beside the checked-in `hazard_yolo11n.labels.txt`. The desktop runner reads that path by
+default, and the Android build packages it when present.
+
+The expected SHA-256 is `4202cdcdcad00ee3778fe1586fe26bb1f6f7942bc0635afd23774f792fa07b77`.
+Check it with `Get-FileHash models/hazard_yolo11n.onnx -Algorithm SHA256` on Windows
+or `shasum -a 256 models/hazard_yolo11n.onnx` on macOS or Linux.
+The SharePoint package's `NOTICE.md` documents the training-data terms and the hold on
+public release of the weights. Model binaries are ignored by Git.
 
 | File | What | How to produce |
 |------|------|----------------|
