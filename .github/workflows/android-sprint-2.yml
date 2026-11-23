@@ -1,0 +1,57 @@
+# Maintainer: Wazeomatic team
+# Created 2026-11-22 with Codex for hosted Sprint 2 Android verification.
+# Inputs: The checked-in Android projects and runner SDK. No model assets are needed.
+# Outputs: Gradle test results and the Mock Waze emulator test status.
+# Errors: Build, boot, or test failures give a nonzero workflow result.
+name: Sprint 2 Android verification
+
+on:
+  push:
+    branches: [sprint-2, main]
+    paths:
+      - 'android/**'
+      - 'tools/emulator/run_e2e.py'
+      - 'wazeomatic/schema.py'
+      - '.github/workflows/android-sprint-2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run Kotlin tests and build both debug apps
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          bash android/detector/gradlew -p android/detector --no-daemon testDebugUnitTest assembleDebug
+          bash android/mockwaze/gradlew -p android/mockwaze --no-daemon assembleDebug
+
+      - name: Boot Android API 35 and exercise the mock reporting flow
+        run: |
+          image='system-images;android-35;google_apis;x86_64'
+          sdkmanager 'emulator' "$image"
+          printf 'no\n' | avdmanager create avd --name sprint2 --package "$image"
+          sudo chmod a+rw /dev/kvm
+          "$ANDROID_HOME/emulator/emulator" -avd sprint2 -port 5554 -no-window -no-audio \
+            -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'adb -s emulator-5554 emu kill || kill "$emulator_pid" 2>/dev/null || true' EXIT
+          export ANDROID_SERIAL=emulator-5554
+          timeout 240 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 3; done'
+          adb shell wm size 1280x2856
+          adb shell wm density 495
+          python3 tools/emulator/run_e2e.py --stage a --install --no-start
+
+      - name: Show emulator diagnostics on failure
+        if: failure()
+        run: |
+          if [ -f "$RUNNER_TEMP/emulator.log" ]; then
+            tail -100 "$RUNNER_TEMP/emulator.log"
+          fi

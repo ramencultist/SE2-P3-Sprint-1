@@ -59,7 +59,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 SDK = Path(os.environ.get("ANDROID_HOME", r"F:\dev\android-sdk"))
-ADB = str(SDK / "platform-tools" / "adb.exe")
+ADB = str(SDK / "platform-tools" / ("adb.exe" if os.name == "nt" else "adb"))
 MOCK_PKG = "com.wazeomatic.mockwaze"
 DET_PKG = "com.wazeomatic.detector"
 MOCK_APK = REPO / "android" / "mockwaze" / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
